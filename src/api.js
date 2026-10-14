@@ -1,5 +1,5 @@
 
-const BASE_URL = "http://localhost:5000";
+const BASE_URL = "https://student-team-formation-backend.onrender.com";
 
 const CACHE_DURATION = 30000;
 const REQUEST_TIMEOUT = 60000;
