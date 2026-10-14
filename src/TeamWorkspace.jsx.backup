@@ -1,0 +1,1416 @@
+
+import { useEffect, useState } from "react";
+import {
+getTeams,
+createTeam,
+getTeamDetails,
+getMissingSkills,
+getRecommendations,
+getMyInvitations,
+sendInvitation,
+acceptInvitation,
+rejectInvitation,
+apiRequest
+} from "./api";
+import TeamCollaboration from "./TeamCollaboration";
+
+const getId = value => {
+if (value && typeof value === "object") {
+return String(value._id || value.id || "");
+}
+return value == null ? "" : String(value);
+};
+
+const getArray = (response, keys = []) => {
+if (Array.isArray(response)) return response;
+const data = response?.data || response;
+const values = [
+...keys.map(key => response?.[key]),
+...keys.map(key => data?.[key]),
+response?.results,
+data?.results,
+data?.data
+];
+return values.find(Array.isArray) || [];
+};
+
+const getObject = (response, key) =>
+response?.[key] ||
+response?.data?.[key] ||
+response?.data ||
+response;
+
+const studentName = student =>
+student?.name || student?.full_name || "Student";
+
+const emptyTeamForm = {
+teamName: "",
+projectTitle: "",
+projectDescription: "",
+requiredSkills: "",
+maxMembers: 4
+};
+
+export default function TeamWorkspace({ currentUser }) {
+const [section, setSection] = useState("teams");
+const [participationRole, setParticipationRole] = useState("leader");
+const [memberOption, setMemberOption] = useState("available");
+
+const [teams, setTeams] = useState([]);
+const [team, setTeam] = useState(null);
+const [selectedTeam, setSelectedTeam] = useState("");
+const [missingSkills, setMissingSkills] = useState([]);
+const [recommendations, setRecommendations] = useState([]);
+const [invitations, setInvitations] = useState([]);
+const [students, setStudents] = useState([]);
+const [studentSearch, setStudentSearch] = useState("");
+const [selectedStudents, setSelectedStudents] = useState([]);
+const [joinRequests, setJoinRequests] = useState([]);
+const [myRequests, setMyRequests] = useState([]);
+
+const [loading, setLoading] = useState(false);
+const [error, setError] = useState("");
+const [form, setForm] = useState(emptyTeamForm);
+
+const [memberForm, setMemberForm] = useState({
+name: currentUser?.name || "",
+branch: currentUser?.branch || "",
+year: currentUser?.year || "",
+skills: Array.isArray(currentUser?.skills)
+? currentUser.skills.join(", ")
+: "",
+interests: Array.isArray(currentUser?.interests)
+? currentUser.interests.join(", ")
+: "",
+experience: currentUser?.experience || "Beginner",
+availability: true
+});
+
+const userId = getId(currentUser);
+const leaderId = getId(team?.leader);
+const isLeader = Boolean(userId && leaderId === userId);
+const isMember = Boolean(
+userId &&
+team?.members?.some(member => getId(member) === userId)
+);
+
+const memberCount = team?.members?.length || 0;
+const availableSlots = Math.max(
+0,
+Number(team?.maxMembers || 0) - memberCount
+);
+const teamIsFull = Boolean(team && availableSlots === 0);
+
+const changeForm = (field, value) => {
+setForm(previous => ({ ...previous, [field]: value }));
+};
+
+const changeMemberForm = (field, value) => {
+setMemberForm(previous => ({ ...previous, [field]: value }));
+};
+
+async function loadTeams() {
+try {
+const response = await getTeams();
+setTeams(getArray(response, ["teams"]));
+} catch (err) {
+setError(err.message);
+}
+}
+
+useEffect(() => {
+loadTeams();
+}, []);
+
+async function loadTeamDetails(id) {
+if (!id) return;
+
+setSelectedTeam(id);
+setSection("details");
+setError("");
+setLoading(true);
+
+try {
+const response = await getTeamDetails(id);
+setTeam(getObject(response, "team"));
+} catch (err) {
+setError(err.message);
+} finally {
+setLoading(false);
+}
+}
+
+async function refreshTeamDetails(id) {
+if (!id) return;
+
+try {
+const response = await getTeamDetails(id);
+setTeam(getObject(response, "team"));
+} catch (err) {
+setError(err.message);
+}
+}
+
+async function loadMissingSkills() {
+if (!selectedTeam) {
+alert("Select a team first");
+return;
+}
+
+setSection("missing");
+setLoading(true);
+setError("");
+
+try {
+const response = await getMissingSkills(selectedTeam);
+setMissingSkills(getArray(response, ["missingSkills"]));
+} catch (err) {
+setError(err.message);
+} finally {
+setLoading(false);
+}
+}
+
+async function loadRecommendations() {
+if (!selectedTeam) {
+alert("Select a team first");
+return;
+}
+
+setSection("recommend");
+setLoading(true);
+setError("");
+
+try {
+const response = await getRecommendations(selectedTeam);
+setRecommendations(
+getArray(response, ["recommendedStudents", "recommendations"])
+);
+} catch (err) {
+setError(err.message);
+} finally {
+setLoading(false);
+}
+}
+
+async function loadStudents(search = "") {
+if (!selectedTeam || !team) {
+alert("Select a team first");
+return;
+}
+
+if (!isLeader) {
+alert("Only the team leader can invite students");
+return;
+}
+
+setSection("select");
+setLoading(true);
+setError("");
+
+try {
+const query = search.trim();
+const response = await apiRequest(
+`/api/members/students?search=${encodeURIComponent(query)}`
+);
+
+setStudents(
+getArray(response, ["students", "users", "results"])
+);
+} catch (err) {
+setError(err.message);
+} finally {
+setLoading(false);
+}
+}
+
+async function loadInvitations() {
+setSection("invitations");
+setLoading(true);
+setError("");
+
+try {
+const response = await getMyInvitations();
+setInvitations(getArray(response, ["invitations"]));
+} catch (err) {
+setError(err.message);
+} finally {
+setLoading(false);
+}
+}
+
+async function loadJoinRequests() {
+setSection("joinRequests");
+setLoading(true);
+setError("");
+
+try {
+const response = await apiRequest(
+"/api/members/join-requests/received"
+);
+setJoinRequests(getArray(response, ["requests"]));
+} catch (err) {
+setError(err.message);
+} finally {
+setLoading(false);
+}
+}
+
+async function loadMyJoinRequests() {
+setSection("myRequests");
+setLoading(true);
+setError("");
+
+try {
+const response = await apiRequest(
+"/api/members/join-requests/my"
+);
+setMyRequests(getArray(response, ["requests"]));
+} catch (err) {
+setError(err.message);
+} finally {
+setLoading(false);
+}
+}
+
+function openTab(id) {
+setSection(id);
+setError("");
+
+if (id === "teams") loadTeams();
+if (id === "invitations") loadInvitations();
+if (id === "missing") loadMissingSkills();
+if (id === "recommend") loadRecommendations();
+if (id === "select") loadStudents(studentSearch);
+if (id === "joinRequests") loadJoinRequests();
+if (id === "myRequests") loadMyJoinRequests();
+}
+
+async function handleCreateTeam(e) {
+e.preventDefault();
+setLoading(true);
+setError("");
+
+try {
+const response = await createTeam({
+teamName: form.teamName.trim(),
+projectTitle: form.projectTitle.trim(),
+projectDescription: form.projectDescription.trim(),
+requiredSkills: form.requiredSkills
+.split(",")
+.map(skill => skill.trim())
+.filter(Boolean),
+maxMembers: Number(form.maxMembers),
+creationRole: participationRole === "leader"
+? "leader"
+: "member"
+});
+
+const created = getObject(response, "team");
+setForm(emptyTeamForm);
+await loadTeams();
+
+if (getId(created)) {
+await loadTeamDetails(getId(created));
+} else {
+setSection("teams");
+}
+
+alert(
+participationRole === "leader"
+? "Team created successfully! You are the team leader."
+: "Team created as a member! Waiting for a team leader."
+);
+} catch (err) {
+setError(err.message);
+alert("Create Team Error: " + err.message);
+} finally {
+setLoading(false);
+}
+}
+
+async function handleSaveMemberProfile(e) {
+e.preventDefault();
+setLoading(true);
+setError("");
+
+try {
+await apiRequest("/api/members/profile", {
+method: "PUT",
+body: JSON.stringify({
+name: memberForm.name.trim(),
+branch: memberForm.branch.trim(),
+year: Number(memberForm.year),
+skills: memberForm.skills
+.split(",")
+.map(skill => skill.trim())
+.filter(Boolean),
+interests: memberForm.interests
+.split(",")
+.map(interest => interest.trim())
+.filter(Boolean),
+experience: memberForm.experience,
+availability: memberForm.availability
+})
+});
+
+alert("Member information saved successfully!");
+} catch (err) {
+setError(err.message);
+alert("Profile Save Error: " + err.message);
+} finally {
+setLoading(false);
+}
+}
+
+async function handleInvite(studentId) {
+if (!selectedTeam || !isLeader || !studentId) return;
+
+if (teamIsFull) {
+alert("Team is full");
+return;
+}
+
+setLoading(true);
+
+try {
+await sendInvitation({
+teamId: selectedTeam,
+receiverId: studentId
+});
+
+setSelectedStudents(previous =>
+previous.filter(id => id !== studentId)
+);
+
+alert("Invitation sent successfully!");
+} catch (err) {
+alert("Invitation Error: " + err.message);
+} finally {
+setLoading(false);
+}
+}
+
+function toggleStudent(id) {
+setSelectedStudents(previous => {
+if (previous.includes(id)) {
+return previous.filter(item => item !== id);
+}
+
+if (previous.length >= availableSlots) {
+alert("Not enough team slots");
+return previous;
+}
+
+return [...previous, id];
+});
+}
+
+async function handleInviteSelected() {
+if (!isLeader || selectedStudents.length === 0) return;
+
+setLoading(true);
+const successful = [];
+const failed = [];
+
+for (const id of selectedStudents) {
+try {
+await sendInvitation({
+teamId: selectedTeam,
+receiverId: id
+});
+successful.push(id);
+} catch (err) {
+failed.push(err.message);
+}
+}
+
+setSelectedStudents(previous =>
+previous.filter(id => !successful.includes(id))
+);
+
+setLoading(false);
+
+alert(
+`${successful.length} invitation(s) sent.` +
+(failed.length ? "\nErrors:\n" + failed.join("\n") : "")
+);
+}
+
+async function handleRespond(id, accept) {
+setLoading(true);
+
+try {
+if (accept) {
+await acceptInvitation(id);
+} else {
+await rejectInvitation(id);
+}
+
+await loadInvitations();
+await loadTeams();
+
+if (selectedTeam) {
+await refreshTeamDetails(selectedTeam);
+}
+
+alert(accept ? "Invitation accepted!" : "Invitation rejected!");
+} catch (err) {
+alert(err.message);
+} finally {
+setLoading(false);
+}
+}
+
+async function handleRequestToJoin(teamId) {
+setLoading(true);
+
+try {
+const response = await apiRequest(
+"/api/members/join-requests",
+{
+method: "POST",
+body: JSON.stringify({ teamId })
+}
+);
+
+alert(response?.message || "Join request sent successfully!");
+await loadMyJoinRequests();
+} catch (err) {
+alert("Join Request Error: " + err.message);
+} finally {
+setLoading(false);
+}
+}
+
+async function respondToJoinRequest(id, action) {
+setLoading(true);
+
+try {
+const response = await apiRequest(
+`/api/members/join-requests/${id}/respond`,
+{
+method: "PUT",
+body: JSON.stringify({ action })
+}
+);
+
+alert(response?.message || "Request updated");
+await loadJoinRequests();
+await loadTeams();
+
+if (selectedTeam) {
+await refreshTeamDetails(selectedTeam);
+}
+} catch (err) {
+alert("Request Error: " + err.message);
+} finally {
+setLoading(false);
+}
+}
+
+async function handleLeaveTeam() {
+if (!selectedTeam || !isMember || isLeader) return;
+if (!window.confirm("Leave this team?")) return;
+
+setLoading(true);
+
+try {
+await apiRequest(`/api/teams/${selectedTeam}/leave`, {
+method: "PUT"
+});
+
+await loadTeams();
+await refreshTeamDetails(selectedTeam);
+alert("You left the team");
+} catch (err) {
+alert(err.message);
+} finally {
+setLoading(false);
+}
+}
+
+async function handleRemoveMember(id) {
+if (!isLeader || !window.confirm("Remove this member?")) return;
+
+setLoading(true);
+
+try {
+await apiRequest(
+`/api/teams/${selectedTeam}/members/${id}`,
+{ method: "DELETE" }
+);
+
+await refreshTeamDetails(selectedTeam);
+await loadTeams();
+alert("Member removed successfully!");
+} catch (err) {
+alert(err.message);
+} finally {
+setLoading(false);
+}
+}
+
+async function handleClaimLeadership() {
+if (!selectedTeam || team?.leader) return;
+if (!window.confirm("Become the leader of this team?")) return;
+
+setLoading(true);
+
+try {
+await apiRequest(
+`/api/teams/${selectedTeam}/claim-leadership`,
+{ method: "PUT" }
+);
+
+await refreshTeamDetails(selectedTeam);
+await loadTeams();
+alert("You are now the team leader!");
+} catch (err) {
+alert(err.message);
+} finally {
+setLoading(false);
+}
+}
+
+const filteredStudents = students.filter(student => {
+const id = getId(student);
+
+if (!id || id === userId) return false;
+
+if (team?.members?.some(member => getId(member) === id)) {
+return false;
+}
+
+const text = [
+studentName(student),
+student.email,
+student.branch,
+student.year,
+...(student.skills || [])
+].join(" ").toLowerCase();
+
+return text.includes(studentSearch.toLowerCase());
+});
+
+const TeamForm = (
+<form onSubmit={handleCreateTeam}>
+<label>Team Name</label>
+<input
+required
+value={form.teamName}
+onChange={e => changeForm("teamName", e.target.value)}
+/>
+
+<label>Project Title</label>
+<input
+required
+value={form.projectTitle}
+onChange={e => changeForm("projectTitle", e.target.value)}
+/>
+
+<label>Project Description</label>
+<textarea
+value={form.projectDescription}
+onChange={e => changeForm("projectDescription", e.target.value)}
+/>
+
+<label>Required Skills (comma separated)</label>
+<input
+placeholder="React, Flutter, Python"
+value={form.requiredSkills}
+onChange={e => changeForm("requiredSkills", e.target.value)}
+/>
+
+<label>Maximum Members</label>
+<input
+type="number"
+min="2"
+max="20"
+required
+value={form.maxMembers}
+onChange={e => changeForm("maxMembers", e.target.value)}
+/>
+
+<button
+type="submit"
+className="primary-btn"
+disabled={loading}
+>
+{loading
+? "Creating..."
+: participationRole === "leader"
+? "Create Team as Leader"
+: "Create Team as Member"}
+</button>
+</form>
+);
+
+return (
+<div className="workspace">
+
+<div className="workspace-tabs">
+{[
+["teams", "Teams"],
+["create", "Create / Join Team"],
+["details", "Team Details"],
+["chat", "Team Chat"],
+["templates", "Project Templates"],
+["select", "Find Students"],
+["recommend", "Skill Recommendations"],
+["missing", "Missing Skills"],
+["invitations", "Invitations"],
+["joinRequests", "Join Requests"],
+["myRequests", "My Join Requests"]
+].map(([id, label]) => (
+<button
+key={id}
+className={section === id ? "tab active-tab" : "tab"}
+onClick={() => openTab(id)}
+>
+{label}
+</button>
+))}
+</div>
+
+{loading && <p className="muted">Loading data...</p>}
+
+{error && (
+<div className="empty-card">
+<h3>Something went wrong</h3>
+<p style={{ color: "red" }}>{error}</p>
+</div>
+)}
+
+{section === "teams" && (
+<>
+<h1>Explore Teams</h1>
+
+<div className="student-grid">
+{teams.map(t => {
+const teamId = getId(t);
+const alreadyMember = (t.members || []).some(
+member => getId(member) === userId
+);
+const ownTeam = getId(t.leader) === userId;
+const hasSpace =
+(t.members?.length || 0) < Number(t.maxMembers || 0);
+
+return (
+<div className="student-card" key={teamId}>
+<h3>{t.teamName}</h3>
+<p>{t.projectTitle}</p>
+<p>
+Leader: {t.leader
+? studentName(t.leader)
+: "Waiting for Team Leader"}
+</p>
+<p>
+Members: {t.members?.length || 0}/{t.maxMembers}
+</p>
+<p>Status: {t.status || "Open"}</p>
+
+<div className="skill-list">
+{(t.requiredSkills || []).map((skill, i) => (
+<span key={i}>{skill}</span>
+))}
+</div>
+
+<div className="workspace-actions">
+<button
+className="primary-btn"
+onClick={() => loadTeamDetails(teamId)}
+>
+View Team
+</button>
+
+{!ownTeam && !alreadyMember && t.leader && hasSpace && (
+<button
+className="outline-btn"
+disabled={loading}
+onClick={() => handleRequestToJoin(teamId)}
+>
+Request to Join
+</button>
+)}
+</div>
+</div>
+);
+})}
+</div>
+
+{!loading && teams.length === 0 && (
+<div className="empty-card">
+<h3>No Teams Found</h3>
+<p>Create your first team!</p>
+</div>
+)}
+</>
+)}
+
+{section === "create" && (
+<div className="workspace-form">
+<h1>Team Formation</h1>
+<p className="muted">
+Choose how you want to participate in the hackathon.
+</p>
+
+<label>Choose Your Role</label>
+<select
+value={participationRole}
+onChange={e => setParticipationRole(e.target.value)}
+>
+<option value="leader">Team Leader</option>
+<option value="member">Team Member</option>
+</select>
+
+{participationRole === "leader" ? (
+<>
+<h2>Create New Team</h2>
+<p className="muted">
+You will automatically become the leader of this team.
+</p>
+{TeamForm}
+</>
+) : (
+<>
+<h2>Join as Team Member</h2>
+
+<label>Choose Your Option</label>
+<select
+value={memberOption}
+onChange={e => setMemberOption(e.target.value)}
+>
+<option value="available">
+Available to Join a Team
+</option>
+<option value="create">
+Create as a Team Member
+</option>
+</select>
+
+{memberOption === "available" ? (
+<>
+<p className="muted">
+Save your information so team leaders can find and invite you.
+</p>
+
+<form onSubmit={handleSaveMemberProfile}>
+<label>Full Name</label>
+<input
+required
+value={memberForm.name}
+onChange={e => changeMemberForm("name", e.target.value)}
+/>
+
+<label>Branch</label>
+<input
+required
+value={memberForm.branch}
+onChange={e => changeMemberForm("branch", e.target.value)}
+/>
+
+<label>Year</label>
+<input
+type="number"
+min="1"
+max="4"
+required
+value={memberForm.year}
+onChange={e => changeMemberForm("year", e.target.value)}
+/>
+
+<label>Technical Skills</label>
+<input
+placeholder="React, Java, Python"
+value={memberForm.skills}
+onChange={e => changeMemberForm("skills", e.target.value)}
+/>
+
+<label>Interests</label>
+<input
+placeholder="AI, Web Development, Hackathons"
+value={memberForm.interests}
+onChange={e => changeMemberForm("interests", e.target.value)}
+/>
+
+<label>Experience Level</label>
+<select
+value={memberForm.experience}
+onChange={e => changeMemberForm("experience", e.target.value)}
+>
+<option value="Beginner">Beginner</option>
+<option value="Intermediate">Intermediate</option>
+<option value="Advanced">Advanced</option>
+</select>
+
+<label style={{
+display: "flex",
+gap: "10px",
+alignItems: "center"
+}}>
+<input
+type="checkbox"
+checked={memberForm.availability}
+onChange={e =>
+changeMemberForm("availability", e.target.checked)
+}
+/>
+Available to Join a Team
+</label>
+
+<button
+type="submit"
+className="primary-btn"
+disabled={loading}
+>
+{loading ? "Saving..." : "Save Member Information"}
+</button>
+</form>
+
+<div className="workspace-actions">
+<button
+className="outline-btn"
+onClick={() => openTab("teams")}
+>
+Explore Existing Teams
+</button>
+
+<button
+className="outline-btn"
+onClick={() => openTab("invitations")}
+>
+View My Invitations
+</button>
+
+<button
+className="outline-btn"
+onClick={() => openTab("myRequests")}
+>
+View My Join Requests
+</button>
+</div>
+</>
+) : (
+<>
+<h2>Create Team as Member</h2>
+<p className="muted">
+You will be a team member. The team will wait for a leader.
+</p>
+{TeamForm}
+</>
+)}
+</>
+)}
+</div>
+)}
+
+{section === "details" && (
+<>
+{team ? (
+<>
+<h1>{team.teamName}</h1>
+<h3>{team.projectTitle}</h3>
+<p>{team.projectDescription}</p>
+
+<p className="muted">
+{isLeader
+? "You are the Team Leader"
+: isMember
+? "You are a Team Member"
+: "Viewing Team Details"}
+</p>
+
+<p>
+Leader: {team.leader
+? studentName(team.leader)
+: "Not assigned"}
+</p>
+
+<p>Status: {team.status || "Open"}</p>
+
+<h2>
+Team Members ({memberCount}/{team.maxMembers})
+</h2>
+
+<div className="student-grid">
+{(team.members || []).map(member => (
+<div className="student-card" key={getId(member)}>
+<h3>{studentName(member)}</h3>
+
+<p>
+{getId(member) === leaderId
+? "Team Leader"
+: "Team Member"}
+</p>
+
+<div className="skill-list">
+{(member.skills || []).map((skill, i) => (
+<span key={i}>{skill}</span>
+))}
+</div>
+
+{isLeader && getId(member) !== userId && (
+<button
+className="outline-btn"
+disabled={loading}
+onClick={() => handleRemoveMember(getId(member))}
+>
+Remove Member
+</button>
+)}
+</div>
+))}
+</div>
+
+<div className="workspace-actions">
+{(isMember || isLeader) && (
+<>
+<button
+className="primary-btn"
+onClick={() => openTab("chat")}
+>
+Team Chat
+</button>
+
+<button
+className="outline-btn"
+onClick={() => openTab("templates")}
+>
+Project Templates
+</button>
+</>
+)}
+
+{isLeader && (
+<>
+<button
+className="primary-btn"
+disabled={teamIsFull}
+onClick={() => loadStudents()}
+>
+Find Students
+</button>
+
+<button
+className="outline-btn"
+onClick={loadJoinRequests}
+>
+View Join Requests
+</button>
+</>
+)}
+
+{!team.leader && !teamIsFull && (
+<button
+className="primary-btn"
+disabled={loading}
+onClick={handleClaimLeadership}
+>
+Become Team Leader
+</button>
+)}
+
+{!isMember &&
+!isLeader &&
+team.leader &&
+!teamIsFull && (
+<button
+className="primary-btn"
+disabled={loading}
+onClick={() => handleRequestToJoin(selectedTeam)}
+>
+Request to Join This Team
+</button>
+)}
+
+<button
+className="outline-btn"
+onClick={loadRecommendations}
+>
+Skill Recommendations
+</button>
+
+<button
+className="outline-btn"
+onClick={loadMissingSkills}
+>
+Check Missing Skills
+</button>
+
+{isMember && !isLeader && (
+<button
+className="outline-btn"
+disabled={loading}
+onClick={handleLeaveTeam}
+>
+Leave Team
+</button>
+)}
+</div>
+</>
+) : (
+<p>Select a team from the Teams tab.</p>
+)}
+</>
+)}
+
+{(section === "chat" || section === "templates") && (
+<>
+{team && selectedTeam && (isMember || isLeader) ? (
+<TeamCollaboration
+key={selectedTeam}
+teamId={selectedTeam}
+teamName={team.teamName}
+initialTab={section === "chat" ? "chat" : "templates"}
+/>
+) : (
+<div className="empty-card">
+<h3>Private Team Workspace</h3>
+<p>
+Select a team you belong to from the Teams tab.
+</p>
+<button
+className="primary-btn"
+onClick={() => openTab("teams")}
+>
+View Teams
+</button>
+</div>
+)}
+</>
+)}
+
+{section === "select" && (
+<>
+<h1>Find Students</h1>
+<p className="muted">
+Search registered students and invite them to your team.
+</p>
+
+{!team ? (
+<p>Select a team first.</p>
+) : !isLeader ? (
+<div className="empty-card">
+<h3>Team Leader Access Only</h3>
+<p>Only the team leader can invite students.</p>
+</div>
+) : (
+<>
+<h3>{team.teamName}</h3>
+<p>Available Slots: {availableSlots}</p>
+
+<div className="workspace-form">
+<input
+placeholder="Search by name, branch, year or skill"
+value={studentSearch}
+onChange={e => setStudentSearch(e.target.value)}
+/>
+
+<button
+className="outline-btn"
+disabled={loading}
+onClick={() => loadStudents(studentSearch)}
+>
+Search Students
+</button>
+</div>
+
+<div className="student-grid">
+{filteredStudents.map(student => {
+const id = getId(student);
+
+return (
+<div className="student-card" key={id}>
+<h3>{studentName(student)}</h3>
+<p>{student.email || ""}</p>
+<p>{student.branch || "N/A"}</p>
+<p>Year: {student.year || "N/A"}</p>
+
+<div className="skill-list">
+{(student.skills || []).map((skill, i) => (
+<span key={i}>{skill}</span>
+))}
+</div>
+
+<label style={{ display: "flex", gap: "10px" }}>
+<input
+type="checkbox"
+checked={selectedStudents.includes(id)}
+disabled={loading || teamIsFull}
+onChange={() => toggleStudent(id)}
+/>
+Select Student
+</label>
+
+<button
+className="outline-btn"
+disabled={loading || teamIsFull}
+onClick={() => handleInvite(id)}
+>
+Invite Student
+</button>
+</div>
+);
+})}
+</div>
+
+{!loading && filteredStudents.length === 0 && (
+<p>No students found. Try another search.</p>
+)}
+
+{selectedStudents.length > 0 && (
+<div className="workspace-actions">
+<button
+className="primary-btn"
+disabled={loading || teamIsFull}
+onClick={handleInviteSelected}
+>
+Send Invitations ({selectedStudents.length})
+</button>
+
+<button
+className="outline-btn"
+onClick={() => setSelectedStudents([])}
+>
+Clear Selection
+</button>
+</div>
+)}
+</>
+)}
+</>
+)}
+
+{section === "missing" && (
+<>
+<h1>Skill Gap Analysis</h1>
+<p className="muted">Skills your team still needs.</p>
+
+<div className="student-card">
+<h3>Missing Skills</h3>
+
+<div className="skill-list">
+{missingSkills.length ? (
+missingSkills.map((skill, i) => (
+<span key={i}>
+{typeof skill === "string"
+? skill
+: skill.name || skill.skill || JSON.stringify(skill)}
+</span>
+))
+) : (
+<p>No missing skills found.</p>
+)}
+</div>
+
+<button
+className="primary-btn"
+onClick={loadRecommendations}
+>
+Find Matching Students
+</button>
+</div>
+</>
+)}
+
+{section === "recommend" && (
+<>
+<h1>Skill Recommendations</h1>
+<p className="muted">
+Optional suggestions based on missing skills.
+</p>
+
+<div className="student-grid">
+{recommendations.map((item, i) => {
+const student = item.student || item.user || item;
+const id = getId(student);
+
+return (
+<div className="student-card" key={id || i}>
+<h3>{studentName(student)}</h3>
+
+<p>
+{student.branch || "N/A"} - Year {student.year || "N/A"}
+</p>
+
+<div className="skill-list">
+{(student.skills || []).map((skill, j) => (
+<span key={j}>{skill}</span>
+))}
+</div>
+
+<h3>
+Score: {item.compatibilityScore ??
+item.score ??
+item.matchScore ??
+"N/A"}
+</h3>
+
+{item.reason && <p>{item.reason}</p>}
+
+{isLeader && (
+<button
+className="primary-btn"
+disabled={loading || !id || teamIsFull}
+onClick={() => handleInvite(id)}
+>
+Invite to Team
+</button>
+)}
+</div>
+);
+})}
+</div>
+
+{!loading && recommendations.length === 0 && (
+<p>No matching students found.</p>
+)}
+
+{isLeader && (
+<button
+className="outline-btn"
+onClick={() => loadStudents()}
+>
+Select Students Manually
+</button>
+)}
+</>
+)}
+
+{section === "invitations" && (
+<>
+<h1>My Invitations</h1>
+
+<div className="student-grid">
+{invitations.map(invitation => (
+<div className="student-card" key={getId(invitation)}>
+<h3>
+{invitation.teamId?.teamName ||
+invitation.team?.teamName ||
+"Team Invitation"}
+</h3>
+
+<p>From: {studentName(invitation.sender)}</p>
+<p>Status: {invitation.status}</p>
+
+{String(invitation.status).toLowerCase() === "pending" && (
+<div className="workspace-actions">
+<button
+className="primary-btn"
+disabled={loading}
+onClick={() => handleRespond(getId(invitation), true)}
+>
+Accept
+</button>
+
+<button
+className="outline-btn"
+disabled={loading}
+onClick={() => handleRespond(getId(invitation), false)}
+>
+Reject
+</button>
+</div>
+)}
+</div>
+))}
+</div>
+
+{!loading && invitations.length === 0 && (
+<p>No invitations found.</p>
+)}
+</>
+)}
+
+{section === "joinRequests" && (
+<>
+<h1>Student Join Requests</h1>
+
+<button
+className="outline-btn"
+onClick={loadJoinRequests}
+disabled={loading}
+>
+Refresh Requests
+</button>
+
+<div className="student-grid">
+{joinRequests.map(request => (
+<div className="student-card" key={getId(request)}>
+<h3>{studentName(request.student)}</h3>
+<p>Team: {request.team?.teamName || "Team"}</p>
+<p>Branch: {request.student?.branch || "N/A"}</p>
+<p>Year: {request.student?.year || "N/A"}</p>
+<p>Status: {request.status}</p>
+
+<div className="skill-list">
+{(request.student?.skills || []).map((skill, i) => (
+<span key={i}>{skill}</span>
+))}
+</div>
+
+{request.status === "Pending" && (
+<div className="workspace-actions">
+<button
+className="primary-btn"
+disabled={loading}
+onClick={() =>
+respondToJoinRequest(getId(request), "accept")
+}
+>
+Accept
+</button>
+
+<button
+className="outline-btn"
+disabled={loading}
+onClick={() =>
+respondToJoinRequest(getId(request), "reject")
+}
+>
+Reject
+</button>
+</div>
+)}
+</div>
+))}
+</div>
+
+{!loading && joinRequests.length === 0 && (
+<p>No join requests found.</p>
+)}
+</>
+)}
+
+{section === "myRequests" && (
+<>
+<h1>My Join Requests</h1>
+
+<button
+className="outline-btn"
+onClick={loadMyJoinRequests}
+disabled={loading}
+>
+Refresh My Requests
+</button>
+
+<div className="student-grid">
+{myRequests.map(request => (
+<div className="student-card" key={getId(request)}>
+<h3>{request.team?.teamName || "Team"}</h3>
+<p>{request.team?.projectTitle || ""}</p>
+<p>Status: {request.status}</p>
+</div>
+))}
+</div>
+
+{!loading && myRequests.length === 0 && (
+<p>You have not sent any join requests yet.</p>
+)}
+</>
+)}
+
+</div>
+);
+}
