@@ -1,5 +1,4 @@
-
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Turnstile } from "@marsidev/react-turnstile";
 import "./App.css";
 
@@ -82,6 +81,8 @@ function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [captchaToken, setCaptchaToken] = useState("");
+  const captchaTokenRef = useRef("");
+  const [captchaWidgetKey, setCaptchaWidgetKey] = useState(0);
   const [showPassword, setShowPassword] = useState(false);
   const [branch, setBranch] = useState("CSE");
   const [year, setYear] = useState("3");
@@ -231,10 +232,16 @@ function App() {
     };
   }, [user?._id, user?.id, user?.email]);
 
+  function resetCaptcha() {
+    captchaTokenRef.current = "";
+    setCaptchaToken("");
+    setCaptchaWidgetKey((current) => current + 1);
+  }
+
   function goToLogin() {
     window.history.replaceState({}, "", "/");
     setPassword("");
-    setCaptchaToken("");
+    resetCaptcha();
     setNewPassword("");
     setConfirmPassword("");
     setShowPassword(false);
@@ -304,8 +311,16 @@ function App() {
       return;
     }
 
-    if (!captchaToken) {
-      alert("Please complete the CAPTCHA verification");
+    const activeCaptchaToken =
+      captchaTokenRef.current || captchaToken;
+
+    console.log(
+      "CAPTCHA token available:",
+      Boolean(activeCaptchaToken)
+    );
+
+    if (!activeCaptchaToken) {
+      alert("CAPTCHA token missing. Refresh the page and try again.");
       return;
     }
 
@@ -324,7 +339,8 @@ function App() {
         interests: [],
         availability: true,
         experience: "Beginner",
-        captchaToken
+        captchaToken: activeCaptchaToken,
+        turnstileToken: activeCaptchaToken
       });
 
       const token =
@@ -346,22 +362,27 @@ function App() {
                 year: Number(year)
               };
 
-        localStorage.setItem("user", JSON.stringify(savedProfile));
+        localStorage.setItem(
+          "user",
+          JSON.stringify(savedProfile)
+        );
+
         sessionStorage.setItem("currentPage", "dashboard");
 
         setUser(savedProfile);
         setPassword("");
-        setCaptchaToken("");
+        resetCaptcha();
         setPage("dashboard");
       } else {
         setPassword("");
-        setCaptchaToken("");
+        resetCaptcha();
         setPage("login");
         alert("Account created successfully. Please sign in.");
       }
     } catch (error) {
+      console.error("Registration error:", error);
       alert(error.message || "Registration failed");
-      setCaptchaToken("");
+      resetCaptcha();
     } finally {
       setLoading(false);
     }
@@ -458,7 +479,7 @@ function App() {
     setName("");
     setEmail("");
     setPassword("");
-    setCaptchaToken("");
+    resetCaptcha();
     setVerificationEmail("");
     setNewPassword("");
     setConfirmPassword("");
@@ -692,19 +713,30 @@ function App() {
                     }}
                   >
                     <Turnstile
-                      key={page}
+                      key={`${page}-${captchaWidgetKey}`}
                       siteKey={
                         import.meta.env.VITE_TURNSTILE_SITE_KEY
                       }
-                      onSuccess={(token) =>
-                        setCaptchaToken(token)
-                      }
-                      onExpire={() =>
-                        setCaptchaToken("")
-                      }
-                      onError={() =>
-                        setCaptchaToken("")
-                      }
+                      onSuccess={(token) => {
+                        console.log("CAPTCHA SUCCESS");
+                        console.log(
+                          "Token received:",
+                          Boolean(token)
+                        );
+
+                        captchaTokenRef.current = token;
+                        setCaptchaToken(token);
+                      }}
+                      onExpire={() => {
+                        captchaTokenRef.current = "";
+                        setCaptchaToken("");
+                        console.log("CAPTCHA expired");
+                      }}
+                      onError={() => {
+                        captchaTokenRef.current = "";
+                        setCaptchaToken("");
+                        console.error("CAPTCHA error");
+                      }}
                     />
                   </div>
                 </>
@@ -905,7 +937,7 @@ function App() {
                 type="button"
                 onClick={() => {
                   setPassword("");
-                  setCaptchaToken("");
+                  resetCaptcha();
                   setShowPassword(false);
 
                   setPage(
